@@ -1,0 +1,18 @@
+services:
+  database:
+    image: postgres:latest
+    container_name: postgres
+    environment: 
+      #TODO: assign private .env for user and password, besides database name
+    ports: 
+      - "5433:5432"  #because postgres is installed locally and consumes that port
+    volumes: 
+      - ./data/postgres:/var/lib/postgres
+    restart: always
+    healthcheck: 
+      test: ["CMD-SHELL", "pg_isready -U ${} -d ${}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
