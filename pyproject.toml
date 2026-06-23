@@ -4,7 +4,33 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
+
+# Base — lo que necesitan scripts, notebooks Y la API
 dependencies = [
     "psycopg[binary,pool]>=3.3.4",
     "sqlalchemy>=2.0.51",
+    "pandas>=2.0.0",
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    "joblib>=1.3.0",
+    "tqdm>=4.68.3",
+]
+
+# Dev — solo en tu máquina, nunca en producción
+[dependency-groups]
+dev = [
+    "kaggle>=2.2.2",
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.0.0",
+]
+
+# API — solo para el contenedor de FastAPI
+api = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.0.0",
+    "alembic>=1.13.0",
 ]

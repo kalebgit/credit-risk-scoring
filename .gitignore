@@ -5,12 +5,15 @@
 .env.local
 .env.*.local
 
+.*
+!.gitignore
+!.gitkeep
+
 ###para configuracion de Vim
 .set_context.py
 
 # Sí versionar esto — es la plantilla sin valores reales
 # .env.example  ← NO ignorar
-
 
 # =============================================================
 # PYTHON
@@ -119,7 +122,7 @@ Desktop.ini
 # =============================================================
 # EDITORES E IDEs
 # =============================================================
-.vscode/
+.vscode/*
 !.vscode/extensions.json   # este sí es útil compartir
 
 .idea/
