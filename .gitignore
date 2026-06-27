@@ -1,0 +1,141 @@
+# =============================================================
+# CREDENCIALES — nunca al repo
+# =============================================================
+.env
+.env.local
+.env.*.local
+
+.*
+!.gitignore
+!.gitkeep
+
+###para configuracion de Vim
+.set_context.py
+
+# Sí versionar esto — es la plantilla sin valores reales
+# .env.example  ← NO ignorar
+
+# =============================================================
+# PYTHON
+# =============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# uv — el lockfile SÍ va al repo
+# uv.lock  ← NO ignorar
+.python-version
+
+# Distribuciones / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Mypy / type checkers
+.mypy_cache/
+.ruff_cache/
+
+
+# =============================================================
+# JUPYTER
+# =============================================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Outputs de notebooks (opcional — a veces quieres versionar outputs)
+# Si quieres limpiar outputs antes de hacer commit:
+# jupyter nbconvert --clear-output --inplace notebooks/*.ipynb
+
+
+# =============================================================
+# DATOS — los CSV pesados no van al repo
+# =============================================================
+data/raw/
+data/processed/
+
+# Pero SÍ versionar la estructura vacía y las instrucciones
+# data/raw/.gitkeep   ← NO ignorar
+# data/README.md      ← NO ignorar
+
+
+# =============================================================
+# MODELOS — depende del tamaño
+# =============================================================
+# Si el modelo pesa más de 50MB, ignóralo y documenta cómo reproducirlo
+# models/*.pkl
+# models/*.joblib
+
+# Si pesa menos, puedes versionarlo — comenta las líneas de arriba
+
+
+# =============================================================
+# DOCKER
+# =============================================================
+# Los volúmenes de Docker viven fuera del repo, no generan archivos aquí
+
+
+# =============================================================
+# BASE DE DATOS
+# =============================================================
+*.sqlite
+*.sqlite3
+*.db
+
+# Backups de PostgreSQL
+*.dump
+*.sql.gz
+
+
+# =============================================================
+# SISTEMA OPERATIVO
+# =============================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+
+# =============================================================
+# EDITORES E IDEs
+# =============================================================
+.vscode/*
+!.vscode/extensions.json   # este sí es útil compartir
+
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+
+# =============================================================
+# LOGS Y TEMPORALES
+# =============================================================
+*.log
+logs/
+tmp/
+temp/
