@@ -1,0 +1,22 @@
+services:
+  database:
+    image: postgres:latest
+    container_name: postgres
+    environment: 
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports: 
+      - "5433:5432"  #because postgres is installed locally and consumes that port
+    volumes: 
+      - postgres_data:/var/lib/postgresql
+    restart: always
+    healthcheck: 
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"] #for the command if our database wasnt named postgres: -d ${}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes: 
+  postgres_data:
