@@ -1,0 +1,1076 @@
+\documentclass[11pt]{article}
+
+% ------------------------------------------------------------------
+% Paquetes
+% ------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% babel español no disponible en este entorno; usamos etiquetas manuales
+\usepackage{babel}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!60!black
+}
+
+% ------------------------------------------------------------------
+% Entornos de teoremas
+% ------------------------------------------------------------------
+\theoremstyle{plain}
+\newtheorem{teorema}{Teorema}[section]
+\newtheorem{proposicion}[teorema]{Proposición}
+\newtheorem{lema}[teorema]{Lema}
+\newtheorem{corolario}[teorema]{Corolario}
+\theoremstyle{definition}
+\newtheorem{definicion}[teorema]{Definición}
+\newtheorem{ejemplo}[teorema]{Ejemplo}
+\theoremstyle{remark}
+\newtheorem{observacion}[teorema]{Observación}
+
+% ------------------------------------------------------------------
+% Macros
+% ------------------------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\logit}{\operatorname{logit}}
+\newcommand{\indep}{\perp\!\!\!\perp}
+\newcommand{\bbeta}{\bm{\beta}}
+\newcommand{\bx}{\bm{x}}
+\newcommand{\bX}{\bm{X}}
+\newcommand{\by}{\bm{y}}
+\newcommand{\bu}{\bm{u}}
+\newcommand{\bW}{\bm{W}}
+\newcommand{\bI}{\bm{I}}
+\newcommand{\bH}{\bm{H}}
+\newcommand{\btheta}{\bm{\theta}}
+\newcommand{\bpi}{\bm{\pi}}
+\newcommand{\hbeta}{\hat{\bm{\beta}}}
+\newcommand{\convd}{\xrightarrow{d}}
+\newcommand{\convp}{\xrightarrow{p}}
+\newcommand{\iid}{\overset{\text{iid}}{\sim}}
+\newcommand{\Bern}{\operatorname{Bernoulli}}
+\newcommand{\Nor}{\mathcal{N}}
+
+% ------------------------------------------------------------------
+% Código Python
+% ------------------------------------------------------------------
+\definecolor{codebg}{rgb}{0.96,0.96,0.96}
+\definecolor{codekw}{rgb}{0.55,0.0,0.55}
+\definecolor{codestr}{rgb}{0.0,0.45,0.0}
+\definecolor{codecom}{rgb}{0.4,0.4,0.4}
+\lstdefinestyle{py}{
+  language=Python,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codekw}\bfseries,
+  stringstyle=\color{codestr},
+  commentstyle=\color{codecom}\itshape,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!40},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Regresión logística: teoría y diagnóstico}
+\lhead{}
+\cfoot{\thepage}
+
+% ==================================================================
+\title{\textbf{Regresión Logística:\\
+Estimación por Máxima Verosimilitud, Inferencia Asintótica\\
+y Diagnóstico de Linealidad en el Logit}}
+\author{Notas de estudio --- nivel ISLR / teoría de verosimilitud}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ==================================================================
+\section{Introducción y objetivo}
+% ==================================================================
+
+Estas notas desarrollan, desde primeros principios, la maquinaria inferencial
+de la regresión logística y los tests de diagnóstico que verifican el supuesto
+central del modelo: la \emph{linealidad en el logit}. El estándar de rigor es
+el de un curso de teoría de la verosimilitud: para cada estadístico se deriva
+su forma, se establece su distribución bajo $H_0$ y se justifica por qué se usa
+ese y no otro.
+
+El hilo conductor es el siguiente flujo de trabajo, que ejecutaremos sobre un
+problema real de \emph{scoring} de crédito (dataset \emph{Home Credit Default
+Risk}):
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+  \item Ajuste del modelo logístico por máxima verosimilitud (MLE), vía
+        Newton--Raphson / IRLS.
+  \item Diagnóstico visual de linealidad en el logit (\emph{empirical logit
+        plot}).
+  \item Test formal de Box--Tidwell (basado en el test de Wald sobre un término
+        construido).
+  \item Remedios ante violaciones (transformaciones, términos polinomiales).
+  \item Bondad de ajuste global (test de Hosmer--Lemeshow).
+\end{enumerate}
+
+La \textbf{trinidad} de tests asintóticos ---Wald, Score (Rao) y Razón de
+Verosimilitudes (LRT)--- aparece transversalmente, de modo que la Sección
+\ref{sec:trinidad} la desarrolla en general y las secciones siguientes la
+instancian.
+
+% ==================================================================
+\section{El modelo logístico}\label{sec:modelo}
+% ==================================================================
+
+\subsection{Planteamiento y motivación del enlace}
+
+Sea $Y \in \{0,1\}$ una respuesta binaria y $\bx = (1, x_1, \dots, x_p)^\top
+\in \R^{p+1}$ un vector de predictores (con intercepto). Modelamos
+\[
+  Y_i \mid \bx_i \iid \Bern(\pi_i), \qquad
+  \pi_i = \Pr(Y_i = 1 \mid \bx_i).
+\]
+
+Un modelo lineal ingenuo $\pi_i = \bx_i^\top\bbeta$ falla por dos razones,
+ambas consecuencia de que $Y$ es Bernoulli:
+
+\begin{itemize}
+  \item \textbf{Rango:} $\bx_i^\top\bbeta$ recorre todo $\R$, pero
+        $\pi_i \in (0,1)$. Un modelo lineal produce probabilidades fuera de
+        $[0,1]$.
+  \item \textbf{Heterocedasticidad:} $\Var(Y_i) = \pi_i(1-\pi_i)$ depende de
+        $\pi_i$ y por tanto de $\bx_i$; no es constante. Esto viola el supuesto
+        de homocedasticidad del modelo lineal (Gauss--Markov), inutilizando OLS.
+\end{itemize}
+
+La solución es introducir una \textbf{función de enlace} $g$ que mapee
+$(0,1) \to \R$. El enlace \emph{canónico} para la familia Bernoulli es el
+\textbf{logit}:
+\[
+  \boxed{\;\logit(\pi_i)
+  = \log\!\frac{\pi_i}{1-\pi_i}
+  = \bx_i^\top \bbeta \;}
+\]
+La cantidad $\pi/(1-\pi)$ son los \emph{odds} (momios), y $\log\{\pi/(1-\pi)\}$
+el \emph{log-odds}. Invirtiendo:
+\[
+  \pi_i = \frac{e^{\bx_i^\top\bbeta}}{1 + e^{\bx_i^\top\bbeta}}
+  = \frac{1}{1 + e^{-\bx_i^\top\bbeta}}
+  = \sigma(\bx_i^\top\bbeta),
+\]
+donde $\sigma(\cdot)$ es la función logística (sigmoide).
+
+\begin{observacion}[¿Por qué el logit y no otro enlace?]
+El logit es el \textbf{enlace canónico} de la familia exponencial Bernoulli.
+Escribiendo la pmf de Bernoulli en forma canónica,
+\[
+  f(y;\pi) = \pi^y(1-\pi)^{1-y}
+  = \exp\!\Big\{ y \underbrace{\log\tfrac{\pi}{1-\pi}}_{\theta}
+  + \log(1-\pi) \Big\},
+\]
+el parámetro natural es exactamente $\theta = \logit(\pi)$. Modelar
+$\theta = \bx^\top\bbeta$ da simplificaciones notables: la información observada
+coincide con la esperada, y Newton--Raphson coincide con Fisher scoring
+(Sección \ref{sec:irls}). Otros enlaces son válidos (probit: $g=\Phi^{-1}$;
+complementario log-log) pero no canónicos.
+\end{observacion}
+
+\subsection{Interpretación de los coeficientes}
+
+De $\logit(\pi) = \bx^\top\bbeta$, un incremento unitario en $x_j$ (con lo demás
+fijo) cambia el log-odds en $\beta_j$, es decir multiplica los \emph{odds} por
+$e^{\beta_j}$. Por eso $e^{\beta_j}$ se llama \emph{odds ratio}. Este carácter
+\textbf{multiplicativo} (frente al aditivo de la regresión lineal) es esencial
+al interpretar variables transformadas: si el modelo usa $\log(x_j)$, entonces
+$\beta_j$ mide el efecto de multiplicar $x_j$ por $e$.
+
+% ==================================================================
+\section{Estimación por máxima verosimilitud}\label{sec:mle}
+% ==================================================================
+
+A diferencia de la regresión lineal (donde OLS da forma cerrada), en logística
+no hay solución cerrada y se recurre al MLE resuelto numéricamente. Seguimos la
+teoría de verosimilitud estándar (cf. Rodríguez, Princeton, \emph{GLM Notes},
+Ap.~A).
+
+\subsection{Log-verosimilitud}
+
+Como los $Y_i$ son Bernoulli independientes, la verosimilitud es
+\[
+  L(\bbeta) = \prod_{i=1}^n \pi_i^{y_i}(1-\pi_i)^{1-y_i},
+\]
+y la \textbf{log-verosimilitud}:
+\begin{align}
+  \ell(\bbeta)
+  &= \sum_{i=1}^n \big[ y_i \log \pi_i + (1-y_i)\log(1-\pi_i) \big] \notag\\
+  &= \sum_{i=1}^n \big[ y_i \log\tfrac{\pi_i}{1-\pi_i} + \log(1-\pi_i)\big]
+     \notag\\
+  &= \sum_{i=1}^n \big[ y_i\, \bx_i^\top\bbeta
+     - \log\!\big(1 + e^{\bx_i^\top\bbeta}\big) \big],
+  \label{eq:loglik}
+\end{align}
+donde en la última línea usamos $\logit(\pi_i)=\bx_i^\top\bbeta$ y
+$\log(1-\pi_i) = -\log(1+e^{\bx_i^\top\bbeta})$.
+
+\subsection{Vector score}
+
+El \textbf{score} es el gradiente de $\ell$. Usando
+$\dfrac{\partial}{\partial\bbeta}\log(1+e^{\bx_i^\top\bbeta})
+= \dfrac{e^{\bx_i^\top\bbeta}}{1+e^{\bx_i^\top\bbeta}}\bx_i = \pi_i \bx_i$,
+\begin{equation}
+  \bu(\bbeta)
+  = \frac{\partial \ell}{\partial \bbeta}
+  = \sum_{i=1}^n (y_i - \pi_i)\,\bx_i
+  = \bX^\top(\by - \bpi),
+  \label{eq:score}
+\end{equation}
+donde $\bX$ es la matriz de diseño $n\times(p+1)$, $\by=(y_i)$ y
+$\bpi=(\pi_i)$. Las \emph{ecuaciones de verosimilitud} $\bu(\hbeta)=\bm 0$
+igualan los momentos observados y ajustados: $\bX^\top\by = \bX^\top\hat\bpi$.
+
+\begin{observacion}[Media cero del score]
+Como $\E[Y_i]=\pi_i$, se tiene $\E[\bu(\bbeta)] = \bX^\top(\E[\by]-\bpi)=\bm 0$
+en el valor verdadero. Esta es la primera identidad de Bartlett, base de toda
+la teoría asintótica.
+\end{observacion}
+
+\subsection{Hessiano e información de Fisher}
+
+Derivando \eqref{eq:score} otra vez, y usando
+$\partial \pi_i/\partial\bbeta = \pi_i(1-\pi_i)\bx_i$:
+\begin{equation}
+  \bH(\bbeta)
+  = \frac{\partial^2 \ell}{\partial\bbeta\,\partial\bbeta^\top}
+  = -\sum_{i=1}^n \pi_i(1-\pi_i)\,\bx_i\bx_i^\top
+  = -\bX^\top \bW \bX,
+  \label{eq:hessian}
+\end{equation}
+donde $\bW = \operatorname{diag}\big(\pi_i(1-\pi_i)\big)$. Como $\bH$ no depende
+de $\by$ (solo de $\bpi$, que depende de $\bbeta$ y $\bX$), la
+\textbf{información observada} $-\bH$ coincide con la \textbf{información
+esperada} (de Fisher):
+\begin{equation}
+  \bI(\bbeta) = \E[-\bH(\bbeta)] = \bX^\top\bW\bX.
+  \label{eq:fisher}
+\end{equation}
+Esta coincidencia es precisamente la propiedad del enlace canónico. Además
+$\bI(\bbeta)$ es definida positiva (si $\bX$ tiene rango completo y
+$0<\pi_i<1$), luego $\ell$ es cóncava y el MLE, cuando existe, es único.
+
+\subsection{Newton--Raphson e IRLS}\label{sec:irls}
+
+Como $\bu(\hbeta)=\bm 0$ no tiene forma cerrada, expandimos el score en serie
+de Taylor de primer orden alrededor de un valor $\bbeta^{(t)}$:
+\[
+  \bm 0 = \bu(\hbeta) \approx \bu(\bbeta^{(t)})
+  + \bH(\bbeta^{(t)})\,(\hbeta - \bbeta^{(t)}),
+\]
+y despejando obtenemos la iteración de \textbf{Newton--Raphson}:
+\begin{equation}
+  \bbeta^{(t+1)}
+  = \bbeta^{(t)} - \bH^{-1}(\bbeta^{(t)})\,\bu(\bbeta^{(t)})
+  = \bbeta^{(t)} + (\bX^\top\bW\bX)^{-1}\bX^\top(\by-\bpi).
+  \label{eq:newton}
+\end{equation}
+Al usar el enlace canónico, $\bH=-\bI$, por lo que Newton--Raphson coincide con
+\textbf{Fisher scoring}. La ecuación \eqref{eq:newton} puede reescribirse como
+un problema de mínimos cuadrados ponderados: definiendo la
+\emph{variable de respuesta ajustada}
+\[
+  z_i^{(t)} = \bx_i^\top\bbeta^{(t)}
+  + \frac{y_i - \pi_i^{(t)}}{\pi_i^{(t)}(1-\pi_i^{(t)})},
+\]
+se obtiene
+\[
+  \bbeta^{(t+1)} = (\bX^\top\bW\bX)^{-1}\bX^\top\bW\bm z^{(t)},
+\]
+que es exactamente el estimador de mínimos cuadrados ponderados (WLS) de
+$\bm z^{(t)}$ sobre $\bX$ con pesos $\bW$. De ahí el nombre \textbf{IRLS}
+(\emph{Iteratively Reweighted Least Squares}): en cada paso resolvemos una
+regresión lineal ponderada, actualizamos $\bpi$ y $\bW$, y repetimos hasta
+convergencia. Este es el algoritmo que implementan \texttt{glm} en R y
+\texttt{statsmodels}/\texttt{sklearn} en Python.
+
+\subsection{Distribución asintótica del MLE}
+
+\begin{teorema}[Normalidad asintótica del MLE]\label{thm:asymp}
+Bajo condiciones de regularidad (parámetro verdadero interior al espacio,
+$\ell$ tres veces diferenciable con terceras derivadas acotadas), el MLE
+satisface
+\[
+  \hbeta \;\overset{a}{\sim}\; \Nor_{p+1}\!\big(\bbeta,\; \bI^{-1}(\bbeta)\big),
+  \qquad\text{equivalentemente}\qquad
+  \sqrt{n}(\hbeta-\bbeta)\convd \Nor\!\big(\bm 0,\, [n^{-1}\bI(\bbeta)]^{-1}\big).
+\]
+\end{teorema}
+
+\emph{Idea de la demostración.} Se expande $\bu(\hbeta)=\bm 0$ alrededor de
+$\bbeta$: $\bm0 = \bu(\bbeta) + \bH(\bbeta)(\hbeta-\bbeta) + o_p$. Entonces
+$\sqrt n(\hbeta-\bbeta) = [-n^{-1}\bH]^{-1}\, n^{-1/2}\bu(\bbeta)+o_p$. Por la
+ley de los grandes números $-n^{-1}\bH \convp n^{-1}\bI$, y por el TCL aplicado
+a $\bu(\bbeta)=\sum_i(y_i-\pi_i)\bx_i$ (suma de términos independientes de media
+cero y varianza $\bI$), $n^{-1/2}\bu(\bbeta)\convd\Nor(\bm0, n^{-1}\bI)$.
+Slutsky cierra el argumento. $\qquad\blacksquare$
+
+En la práctica estimamos la covarianza por $\widehat{\Var}(\hbeta) =
+\bI^{-1}(\hbeta) = (\bX^\top\hat\bW\bX)^{-1}$, y el \textbf{error estándar} de
+$\hat\beta_j$ es
+\[
+  \operatorname{SE}(\hat\beta_j)
+  = \sqrt{\big[(\bX^\top\hat\bW\bX)^{-1}\big]_{jj}}.
+\]
+
+\begin{observacion}[Qué es SE]
+El \emph{error estándar} $\operatorname{SE}(\hat\beta_j)$ es la desviación
+estándar \emph{de la distribución muestral del estimador} $\hat\beta_j$ (no de
+los datos). Cuantifica cuánto variaría $\hat\beta_j$ entre muestras repetidas.
+Sale de la raíz del elemento diagonal $j$ de la matriz de covarianza asintótica
+$\bI^{-1}(\hbeta)$.
+\end{observacion}
+
+% ==================================================================
+\section{La trinidad de tests asintóticos}\label{sec:trinidad}
+% ==================================================================
+
+Sea $H_0:\btheta=\btheta_0$ (o, más generalmente, restricciones sobre un
+subvector). Existen tres estadísticos clásicos, todos con distribución
+asintótica $\chi^2$ bajo $H_0$. Difieren en \emph{dónde} evalúan la
+verosimilitud.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Test & Evalúa en & Requiere ajustar \\
+\midrule
+Wald  & $\hbeta$ (irrestricto)      & solo modelo grande \\
+Score (Rao) & $\btheta_0$ (restringido) & solo modelo chico \\
+LRT   & ambos                       & ambos modelos \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Test de Wald}
+
+\begin{teorema}[Wald]
+Bajo $H_0:\btheta=\btheta_0$ y las condiciones del Teorema \ref{thm:asymp}, el
+estadístico
+\[
+  W = (\hbeta-\btheta_0)^\top \bI(\hbeta)\,(\hbeta-\btheta_0)
+  \convd \chi^2_r,
+\]
+donde $r$ es el número de restricciones.
+\end{teorema}
+
+\emph{Derivación.} Del Teorema \ref{thm:asymp}, $\hbeta \overset{a}{\sim}
+\Nor(\btheta_0, \bI^{-1})$ bajo $H_0$. Estandarizando, la forma cuadrática de un
+vector normal $\bm z\sim\Nor(\bm0,\Sigma)$ cumple $\bm z^\top\Sigma^{-1}\bm z
+\sim\chi^2_r$. Tomando $\bm z=\hbeta-\btheta_0$ y $\Sigma=\bI^{-1}$ se obtiene
+el resultado. $\quad\blacksquare$
+
+Para una sola componente ($r=1$), se toma la raíz con signo:
+\[
+  z_j = \frac{\hat\beta_j - \beta_{j,0}}{\operatorname{SE}(\hat\beta_j)}
+  \convd \Nor(0,1),
+  \qquad z_j^2 \convd \chi^2_1.
+\]
+Este es exactamente el \emph{z-value} que reporta \texttt{statsmodels} en la
+tabla de coeficientes. Nótese el paralelo con el test $t$ de regresión lineal:
+allí el estadístico sigue una $t$ exacta (por normalidad de los errores); aquí
+solo tenemos normalidad \emph{asintótica}, así que la referencia es $\Nor(0,1)$
+y no $t$.
+
+\subsection{Test de Score (Rao)}
+
+\begin{teorema}[Score]
+Bajo $H_0:\btheta=\btheta_0$, el score satisface
+$\bu(\btheta_0)\overset{a}{\sim}\Nor(\bm0,\bI(\btheta_0))$, y el estadístico
+\[
+  Q = \bu(\btheta_0)^\top \bI^{-1}(\btheta_0)\, \bu(\btheta_0) \convd \chi^2_r.
+\]
+\end{teorema}
+
+\emph{Derivación.} Bajo $H_0$, $\bu(\btheta_0)=\sum_i(y_i-\pi_{i,0})\bx_i$ es
+suma de términos independientes de media cero (identidad de Bartlett) y
+covarianza $\bI(\btheta_0)$. Por el TCL,
+$\bu(\btheta_0)\convd\Nor(\bm0,\bI(\btheta_0))$. La forma cuadrática
+correspondiente es $\chi^2_r$. $\quad\blacksquare$
+
+La gran ventaja: \emph{no requiere calcular el MLE del modelo grande}, solo el
+del modelo restringido (a menudo trivial). Por eso es el motor de muchos tests
+de diagnóstico (incluido el enfoque de "variable construida" del Box--Tidwell).
+
+\subsection{Test de Razón de Verosimilitudes (LRT)}
+
+\begin{teorema}[Wilks]
+Sean $\omega_1\subset\omega_2$ modelos anidados. Bajo $H_0$ (el modelo pequeño
+es correcto),
+\[
+  G^2 = -2\log\lambda
+  = 2\big[\ell(\hbeta_{\omega_2}) - \ell(\hbeta_{\omega_1})\big]
+  \convd \chi^2_\nu,
+  \qquad \nu = \dim(\omega_2)-\dim(\omega_1).
+\]
+\end{teorema}
+
+\emph{Derivación (esbozo).} Expandiendo $\ell(\hbeta_{\omega_1})$ alrededor de
+$\hbeta_{\omega_2}$ en Taylor de segundo orden y usando que el score se anula en
+el MLE, se obtiene
+$G^2 \approx (\hbeta_{\omega_2}-\hbeta_{\omega_1})^\top
+\bI (\hbeta_{\omega_2}-\hbeta_{\omega_1})$,
+que es asintóticamente equivalente al estadístico de Wald y por tanto
+$\chi^2_\nu$. $\quad\blacksquare$
+
+\begin{observacion}[Equivalencia asintótica y elección]
+Los tres estadísticos convergen a la misma $\chi^2_r$ bajo $H_0$ y son
+asintóticamente equivalentes. En muestras finitas difieren; simulaciones
+sugieren que el LRT suele ser preferible. La elección práctica se rige por el
+costo computacional (¿ya tengo ajustado el modelo grande, el chico, o ambos?) y
+por robustez. En muestras muy grandes ---como el dataset de crédito con
+$n\approx 3\times10^5$--- los tres coinciden casi exactamente.
+\end{observacion}
+
+% ==================================================================
+\section{Diagnóstico visual: el \emph{empirical logit plot}}\label{sec:visual}
+% ==================================================================
+
+El supuesto central de la regresión logística no es que $X$ se relacione
+linealmente con $Y$ (para eso está la curva sigmoide), sino que el
+\textbf{logit} sea lineal en cada predictor continuo:
+\[
+  \logit(\pi(x)) = \beta_0 + \beta_1 x .
+\]
+
+\textbf{Idea del diagnóstico.} Si agrupamos las observaciones en bins según $x$
+y en cada bin estimamos $\hat p_b = \bar y_b$ (proporción de éxitos), entonces
+bajo el modelo el logit empírico $\log\{\hat p_b/(1-\hat p_b)\}$ debe ser
+aproximadamente lineal en el centro $\bar x_b$ del bin.
+
+\paragraph{Por qué bins de igual frecuencia (\texttt{qcut}).} La varianza del
+logit empírico en un bin depende del número de observaciones:
+\[
+  \Var\big(\logit(\hat p_b)\big) \approx
+  \frac{1}{n_b\,\hat p_b(1-\hat p_b)}
+\]
+(por el método delta aplicado a $\logit$). Bins con pocas observaciones dan
+puntos muy ruidosos. Usar cuantiles (\texttt{pd.qcut}) garantiza $n_b$
+aproximadamente constante y estabiliza la varianza; usar bins de igual ancho
+(\texttt{pd.cut}) dejaría bins casi vacíos en las colas.
+
+\begin{lstlisting}[style=py, caption={Empirical logit plot con manejo de NaN e infinitos.}]
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def empirical_logit_plot(X_col, y, n_bins=10):
+    df = pd.DataFrame({"X": X_col, "y": y})
+    # Robustez: eliminar NaN e infinitos (p.ej. log de valores <= 0)
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+
+    # Bins de igual frecuencia; duplicates='drop' evita errores por empates
+    df["bin"] = pd.qcut(df["X"], q=n_bins, duplicates="drop")
+    grouped = df.groupby("bin", observed=True).agg(
+        p=("y", "mean"),
+        X_mid=("X", "mean"),
+    )
+    # Solo bins con p en (0,1): el logit no existe en 0 ni 1
+    grouped = grouped[(grouped["p"] > 0) & (grouped["p"] < 1)]
+    grouped["logit"] = np.log(grouped["p"] / (1 - grouped["p"]))
+
+    plt.figure()
+    plt.scatter(grouped["X_mid"], grouped["logit"])
+    coef = np.polyfit(grouped["X_mid"], grouped["logit"], 1)
+    xs = np.unique(grouped["X_mid"])
+    plt.plot(xs, np.poly1d(coef)(xs), "r--")
+    plt.xlabel(X_col.name); plt.ylabel("logit empirico")
+    plt.title(f"Logit empirico vs {X_col.name}")
+    plt.show()
+\end{lstlisting}
+
+\paragraph{Limitación.} Con $n$ grande y solo 10 bins, cada punto resume
+decenas de miles de observaciones y el diagrama puede verse ruidoso aun cuando
+la relación sea lineal. El visual es \emph{preliminar}; la decisión formal la da
+el test de Box--Tidwell (Sección \ref{sec:boxtidwell}).
+
+% ==================================================================
+\section{Test de Box--Tidwell}\label{sec:boxtidwell}
+% ==================================================================
+
+\subsection{Origen: transformación de Box y Tidwell (1962)}
+
+Box y Tidwell (1962, \emph{Technometrics} \textbf{4}, 531--550) propusieron
+estimar la potencia $\lambda$ de una transformación $x\mapsto x^\lambda$ que
+linealiza la relación. En el contexto logístico, supongamos que la forma
+verdadera es
+\[
+  \logit(\pi) = \beta_0 + \beta_1\, x^\lambda,
+\]
+y queremos contrastar $H_0:\lambda=1$ (linealidad). El problema es que $\lambda$
+entra de forma \emph{no lineal} en los parámetros, lo que complicaría la
+estimación. La solución de Box--Tidwell es \textbf{linealizar por Taylor}.
+
+\subsection{Linealización por serie de Taylor}
+
+Expandimos $x^\lambda$ como función de $\lambda$ alrededor de $\lambda=1$.
+Recordando que $\dfrac{d}{d\lambda}x^\lambda = x^\lambda\log x$, evaluado en
+$\lambda=1$ da $x\log x$:
+\[
+  x^\lambda \approx x^1 + (\lambda-1)\,\big[x\log x\big]
+  = x + (\lambda-1)\,x\log x.
+\]
+Sustituyendo en el modelo:
+\[
+  \logit(\pi) \approx \beta_0 + \beta_1 x
+  + \underbrace{\beta_1(\lambda-1)}_{\displaystyle \gamma}\, (x\log x).
+\]
+Definiendo $\gamma = \beta_1(\lambda-1)$, el modelo se vuelve \textbf{lineal en
+los parámetros} $(\beta_0,\beta_1,\gamma)$, con un \emph{término construido}
+adicional $x\log x$:
+\begin{equation}
+  \boxed{\;\logit(\pi) = \beta_0 + \beta_1 x + \gamma\,(x\log x)\;}
+  \label{eq:bt}
+\end{equation}
+
+\subsection{El contraste y su estadístico}
+
+Bajo esta parametrización, la hipótesis de linealidad $\lambda=1$ equivale a
+\[
+  H_0:\ \gamma = 0 \qquad\text{vs}\qquad H_a:\ \gamma\neq 0.
+\]
+Como \eqref{eq:bt} es un modelo logístico ordinario (con $x\log x$ como un
+predictor más), el contraste sobre $\gamma$ es un \textbf{test de Wald} estándar
+sobre un coeficiente individual:
+\[
+  z = \frac{\hat\gamma}{\operatorname{SE}(\hat\gamma)} \convd \Nor(0,1)
+  \quad\text{bajo }H_0,
+  \qquad z^2\convd\chi^2_1.
+\]
+Rechazar $H_0$ ($p<0.05$) indica que el término $x\log x$ mejora
+significativamente el ajuste, es decir, \textbf{hay violación de la linealidad
+en el logit}. Equivalentemente puede usarse el LRT comparando \eqref{eq:bt} con
+el modelo sin $x\log x$; ambos son asintóticamente $\chi^2_1$.
+
+\begin{observacion}[¿Por qué este estadístico y no un test directo sobre
+$\lambda$?]
+Un test de Wald/LRT directo sobre $\lambda$ exigiría estimar el modelo no lineal
+$\beta_0+\beta_1 x^\lambda$, con optimización más costosa e inestable. El truco
+de Box--Tidwell convierte el problema en \emph{añadir una covariable
+construida} y testear su coeficiente con la maquinaria ya disponible. El costo:
+es una prueba \emph{local} (válida cerca de $\lambda=1$) y de primer orden.
+\end{observacion}
+
+\subsection{Un test o muchos: Wald escalar, Wald multivariado y LRT}
+\label{sec:escalar-vs-conjunto}
+
+Al ajustar el \textbf{único} modelo aumentado con todos los términos
+construidos,
+\[
+  \logit(\pi) = \beta_0 + \sum_{j=1}^m \beta_j x_j
+  + \sum_{j=1}^m \gamma_j\,(x_j\log x_j),
+\]
+disponemos de un vector $\bm\gamma=(\gamma_1,\dots,\gamma_m)^\top$. Sobre este
+\emph{mismo} modelo pueden plantearse dos hipótesis distintas, y conviene no
+confundirlas.
+
+\paragraph{(A) Hipótesis univariada (una por variable).}
+\[
+  H_0^{(j)}:\ \gamma_j = 0 \qquad (r=1).
+\]
+Es el \textbf{Wald escalar} sobre un coeficiente individual, ya derivado en la
+Sección \ref{sec:trinidad}:
+\[
+  z_j = \frac{\hat\gamma_j}{\operatorname{SE}(\hat\gamma_j)}\convd\Nor(0,1),
+  \qquad z_j^2\convd\chi^2_1,
+\]
+donde $\operatorname{SE}(\hat\gamma_j)=\sqrt{[\bI^{-1}(\hbeta)]_{jj}}$. Testea la
+linealidad de \emph{una} variable, controlando por todo lo demás (incluidos los
+otros $\gamma_k$). Es el que reporta \texttt{statsmodels} en
+\texttt{.pvalues}, y el que guía la decisión de \emph{cuál} variable
+transformar.
+
+\paragraph{(B) Hipótesis conjunta (todas a la vez).}
+\[
+  H_0:\ \gamma_1=\gamma_2=\cdots=\gamma_m=0 \qquad (r=m).
+\]
+La hipótesis es que \emph{ninguna} variable viola linealidad simultáneamente.
+Aquí sí aparece un \textbf{Wald multivariado}. Escribiendo la restricción en
+forma matricial $H_0:\bm C\hbeta = \bm 0$, donde $\bm C$ es la matriz
+$m\times(2m+1)$ que selecciona las componentes $\bm\gamma$ del vector completo,
+el estadístico es la \textbf{forma cuadrática}
+\begin{equation}
+  W = \hat{\bm\gamma}^\top
+  \big[\widehat{\Var}(\hat{\bm\gamma})\big]^{-1}\hat{\bm\gamma}
+  \convd \chi^2_m,
+  \label{eq:wald-multi}
+\end{equation}
+con $\widehat{\Var}(\hat{\bm\gamma})$ el bloque $m\times m$ de la covarianza
+$\bI^{-1}(\hbeta)=(\bX^\top\bW\bX)^{-1}$ correspondiente a $\bm\gamma$.
+
+\emph{Derivación.} Por el Teorema \ref{thm:asymp}, $\hbeta\overset{a}{\sim}
+\Nor(\bbeta,\bI^{-1})$. Una transformación lineal de un vector normal es normal:
+$\bm C\hbeta \overset{a}{\sim}\Nor(\bm C\bbeta,\ \bm C\bI^{-1}\bm C^\top)$. Bajo
+$H_0$, $\bm C\bbeta=\bm 0$, y como $\bm C$ selecciona el subvector $\bm\gamma$,
+$\bm C\bI^{-1}\bm C^\top = \widehat{\Var}(\hat{\bm\gamma})$ es justo el bloque
+diagonal. La forma cuadrática de un normal $\bm z\sim\Nor(\bm0,\Sigma)$ cumple
+$\bm z^\top\Sigma^{-1}\bm z\sim\chi^2_m$; con $\bm z=\hat{\bm\gamma}$ se obtiene
+\eqref{eq:wald-multi}. $\quad\blacksquare$
+
+Este es el análogo logístico exacto del estadístico $F$ que en regresión lineal
+contrasta un \emph{bloque} de coeficientes simultáneamente (allí $F$ exacta por
+normalidad de los errores; aquí $\chi^2_m$ solo asintótica).
+
+\paragraph{El LRT conjunto: alternativa equivalente.}
+La misma hipótesis conjunta $H_0:\bm\gamma=\bm0$ puede contrastarse por razón de
+verosimilitudes, comparando el modelo aumentado (grande) con el modelo sin los
+$m$ términos construidos (chico):
+\[
+  G^2 = 2\big[\ell(\text{aumentado}) - \ell(\text{reducido})\big]
+  \convd\chi^2_m.
+\]
+Por la equivalencia asintótica de la trinidad (Sección \ref{sec:trinidad}),
+$W$ de \eqref{eq:wald-multi} y $G^2$ convergen a la misma $\chi^2_m$ bajo $H_0$.
+En la implementación de la Sección \ref{sec:boxtidwell} usamos el \textbf{LRT}
+para la parte conjunta ---no el Wald multivariado--- simplemente porque ya
+teníamos ambos modelos ajustados y resulta más económico; ambas respuestas son
+válidas e intercambiables.
+
+\begin{observacion}[Escalar y conjunto no son redundantes]
+Puede ocurrir que \emph{ningún} Wald escalar rechace ($p_j>0.05$ para todo $j$)
+pero el test conjunto \emph{sí} rechace: violaciones pequeñas y correlacionadas
+suman evidencia. Y a la inversa, un escalar aislado puede rechazar sin que el
+conjunto lo haga. Es el mismo fenómeno que en regresión lineal, donde el $F$
+global puede ser significativo con todos los $t$ individuales no significativos
+(multicolinealidad). La forma cuadrática \eqref{eq:wald-multi} captura la
+covarianza \emph{entre} los $\hat\gamma_j$ vía el bloque
+$\widehat{\Var}(\hat{\bm\gamma})$, información que los tests escalares uno a uno
+ignoran.
+\end{observacion}
+
+\begin{center}
+\begin{tabular}{lllc}
+\toprule
+Pregunta & Hipótesis & Test & Distr.\ bajo $H_0$ \\
+\midrule
+¿\emph{Esta} variable viola linealidad? & $\gamma_j=0$
+  & Wald escalar & $\chi^2_1$ \\
+¿\emph{Alguna} variable viola linealidad? & $\bm\gamma=\bm0$
+  & Wald multivariado \emph{o} LRT & $\chi^2_m$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Para el flujo de decisión (transformar variable por variable) se necesita el
+\textbf{Wald escalar}, porque interesa saber \emph{cuál} corregir. El test
+conjunto sirve de chequeo global: si el $\chi^2_m$ no rechaza, puede detenerse el
+análisis sin revisar variable por variable.
+
+\paragraph{Wald multivariado explícito en Python.}
+\begin{lstlisting}[style=py]
+# Sobre el modelo aumentado m_full (con los terminos X*ln(X)):
+terminos = [c for c in m_full.params.index if c.endswith("_ln")]
+
+# H0 conjunta: todos los gamma = 0  -> Wald multivariado (chi^2 con m gl)
+wald_conjunto = m_full.wald_test(
+    ", ".join(f"{t} = 0" for t in terminos),
+    scalar=True,
+)
+print(wald_conjunto)   # estadistico chi^2, gl = m, y su p-valor
+\end{lstlisting}
+Internamente \texttt{wald\_test} construye $\bm C$, extrae el bloque de
+covarianza y evalúa la forma cuadrática \eqref{eq:wald-multi}.
+
+\subsection{Restricciones de aplicabilidad}
+
+El término $x\log x$ requiere $x>0$. Por tanto:
+\begin{itemize}
+  \item \textbf{Continuas positivas:} aplica directamente.
+  \item \textbf{Con ceros/negativos:} desplazar ($x\mapsto x-\min+c$) o usar la
+        versión con enlace/otra transformación. Si el cero es
+        \emph{estructural} (p.ej.\ \texttt{amt\_goods\_price}=0 para préstamos en
+        efectivo), la práctica correcta es separar en un flag binario más la
+        variable transformada donde $x>0$.
+  \item \textbf{Binarias / dummies:} \textbf{no aplica}. Con solo dos valores,
+        dos puntos siempre determinan una recta; no hay curva que linealizar, y
+        $\log 0$ no existe. El supuesto de linealidad en el logit es un supuesto
+        \emph{sobre variables continuas}.
+\end{itemize}
+
+\subsection{Por qué incluir el resto de covariables (control)}
+
+El test debe correrse en el \textbf{modelo completo}: se incluyen todos los
+predictores y se añade $x_j\log x_j$ para cada continua a testear. Omitir
+covariables relevantes induce el \textbf{sesgo por variable omitida} (misma
+lógica que en regresión lineal múltiple): si $x_j$ está correlacionada con una
+covariable ausente $x_k$, entonces $\hat\gamma_j$ absorbe parte del efecto de
+$x_k$ y el test detecta "no-linealidad" espuria. Esto es coherente con el
+supuesto formal ---``no se omiten variables importantes''--- listado en los
+tratamientos de diagnóstico logístico (UCLA OARC; University of Guelph).
+
+El test de Wald sobre cada $\hat\gamma_j$, en el modelo aumentado conjunto,
+contrasta la linealidad \emph{marginal} de $x_j$ \emph{dado todo lo demás}, que
+es la pregunta correcta. Esta versión conjunta (todos los términos $x_j\log x_j$
+a la vez) es válida y es la recomendada para modelos multivariados; equivale a
+correr un test por variable pero controlando simultáneamente por los demás
+términos construidos.
+
+\subsection{Implementación en Python}
+
+\begin{lstlisting}[style=py, caption={Box--Tidwell conjunto con Wald por término y LRT global.}]
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import scipy.stats as stats
+
+def box_tidwell_test(df, y, cols_a_testear, cols_control=None):
+    """
+    H0: gamma_j = 0 (linealidad en el logit) para cada X_j continua > 0.
+    - cols_a_testear: continuas positivas -> se agrega X*ln(X).
+    - cols_control:   entran como control, NO se testean (negativas, dummies).
+    """
+    X = pd.DataFrame(index=df.index)
+    if cols_control:
+        for c in cols_control:
+            X[c] = df[c]
+
+    interaction_cols = []
+    for c in cols_a_testear:
+        v = df[c]
+        if not (v > 0).all():
+            print(f"[omitida] {c}: tiene valores <= 0")
+            continue
+        X[c] = v
+        X[f"{c}_ln"] = v * np.log(v)
+        interaction_cols.append(f"{c}_ln")
+
+    # Eliminar filas con NaN en cualquier columna usada
+    X["_y"] = y
+    X = X.dropna()
+    y_clean = X.pop("_y")
+
+    Xc = sm.add_constant(X)
+    m_full = sm.Logit(y_clean, Xc).fit(disp=0)
+
+    print("== Box-Tidwell: Wald por termino (z = gamma/SE ~ N(0,1)) ==")
+    resultados = {}
+    for col in interaction_cols:
+        var = col.replace("_ln", "")
+        g, se = m_full.params[col], m_full.bse[col]
+        z, p = m_full.tvalues[col], m_full.pvalues[col]
+        flag = "*** VIOLACION" if p < 0.05 else "OK"
+        print(f"  {var:22s}: gamma={g:+.5f}  z={z:7.3f}  p={p:.4f}  {flag}")
+        resultados[var] = {"gamma": g, "se": se, "z": z, "p": p}
+
+    # LRT global: H0 todos los gamma = 0
+    m_red = sm.Logit(y_clean, Xc.drop(columns=interaction_cols)).fit(disp=0)
+    lr = 2 * (m_full.llf - m_red.llf)
+    gl = len(interaction_cols)
+    p_lrt = stats.chi2.sf(lr, df=gl)
+    print(f"\n== LRT global: G2={lr:.3f}, gl={gl}, p={p_lrt:.4f} ==")
+
+    return m_full, m_red, resultados
+\end{lstlisting}
+
+\begin{lstlisting}[style=py, caption={Decisión post-test con criterio de magnitud (clave en $n$ grande).}]
+cols_finales = list(cols_control)
+for var, r in resultados.items():
+    if r["p"] >= 0.05:
+        print(f"{var}: OK -> entra sin transformacion adicional")
+        cols_finales.append(var)
+    elif abs(r["gamma"]) < 1e-2:
+        # Significativo pero magnitud trivial: en n grande el Wald
+        # detecta violaciones minusculas. Practicamente irrelevante.
+        print(f"{var}: p<0.05 pero |gamma|~0 -> violacion irrelevante")
+        cols_finales.append(var)
+    else:
+        # Violacion real -> remedio (termino cuadratico, spline, excluir)
+        print(f"{var}: VIOLACION real -> aplicar remedio")
+        df[f"{var}_sq"] = df[var] ** 2
+        cols_finales += [var, f"{var}_sq"]
+\end{lstlisting}
+
+\begin{observacion}[Sensibilidad al tamaño de muestra]
+El test de Box--Tidwell \textbf{no es robusto al tamaño muestral}: con $n$
+grande, $\operatorname{SE}(\hat\gamma)$ es diminuto y el Wald declara
+significativas violaciones de magnitud ínfima. La guía práctica (SPSS,
+literatura aplicada) es: con muestras grandes, no preocuparse por una
+interacción \emph{apenas} significativa; mirar la \emph{magnitud} de
+$\hat\gamma$ junto con el $p$-valor. Con $n\approx 3\times10^5$ esto es esencial.
+\end{observacion}
+
+% ==================================================================
+\section{Remedios ante violaciones}\label{sec:remedios}
+% ==================================================================
+
+Si el test rechaza linealidad con magnitud no trivial, las opciones ordenadas
+de menor a mayor complejidad:
+
+\begin{enumerate}[label=\textbf{\alph*.}]
+  \item \textbf{Transformación} del predictor (log, raíz, recíproco). Es el
+        primer intento natural y suele bastar para variables de escala amplia
+        (montos, ingresos).
+  \item \textbf{Término polinomial:} añadir $x^2$ (o mayor) al modelo, que
+        captura curvatura en el logit. Concuerda con la literatura
+        (Hosmer--Lemeshow; notas de UCLA/Guelph).
+  \item \textbf{Spline cúbico restringido:} más flexible que un polinomio
+        global, con mejor comportamiento en las colas.
+  \item \textbf{Excluir la variable} si, además de no-lineal, no aporta poder
+        predictivo (confirmar con LRT del modelo con y sin ella).
+\end{enumerate}
+
+Tras aplicar un remedio, se \textbf{re-grafica} el logit empírico de la variable
+transformada y se \textbf{re-testea} con Box--Tidwell hasta que el supuesto se
+sostenga.
+
+\paragraph{Interpretación tras transformar.} La transformación pasa a ser parte
+de la \emph{especificación} del modelo: se aplica idénticamente en
+entrenamiento, validación, test y producción (idealmente encapsulada en un
+\texttt{Pipeline} de \texttt{sklearn}). El coeficiente de $\log(x_j)$ mide el
+efecto de multiplicar $x_j$ por $e$ sobre el log-odds; no es comparable en
+escala con el de una variable sin transformar.
+
+% ==================================================================
+\section{Bondad de ajuste global: test de Hosmer--Lemeshow}\label{sec:hl}
+% ==================================================================
+
+\subsection{Por qué no sirve el $\chi^2$ de Pearson clásico}
+
+Para evaluar bondad de ajuste global se compara frecuencias observadas y
+esperadas. Con predictores \emph{continuos}, casi cada observación tiene un
+patrón de covariables único, generando una tabla de contingencia dispersa
+(celdas con conteos $0$ o $1$). En ese régimen, los estadísticos $X^2$ de
+Pearson y $G^2$ de devianza \textbf{no} tienen distribución $\chi^2$
+aproximada, porque el número de celdas crece con $n$ y las frecuencias
+esperadas por celda no crecen. Hosmer y Lemeshow (1980) propusieron agrupar
+para restaurar la aproximación.
+
+\subsection{Construcción del estadístico}
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+  \item Ajustar el modelo y calcular las probabilidades ajustadas $\hat\pi_i$
+        para toda observación.
+  \item Ordenar por $\hat\pi_i$ y partir en $g$ grupos de igual tamaño
+        (típicamente $g=10$, \emph{deciles de riesgo}).
+  \item En cada grupo $k$: observados $O_k=\sum_{i\in k} y_i$; esperados
+        $E_k=\sum_{i\in k}\hat\pi_i = n_k\bar\pi_k$, con $\bar\pi_k$ la
+        probabilidad media del grupo.
+\end{enumerate}
+El estadístico es una suma tipo Pearson sobre éxitos y fracasos de cada grupo:
+\begin{equation}
+  \hat C = \sum_{k=1}^{g}
+  \frac{(O_k - n_k\bar\pi_k)^2}{n_k\,\bar\pi_k(1-\bar\pi_k)}.
+  \label{eq:hl}
+\end{equation}
+
+\subsection{Distribución y grados de libertad}
+
+\begin{teorema}[Hosmer--Lemeshow, 1980]
+Si el modelo logístico es correcto, las frecuencias esperadas por celda son
+suficientemente grandes y $g > p+1$, entonces (establecido por simulación)
+\[
+  \hat C \;\overset{a}{\sim}\; \chi^2_{g-2}.
+\]
+\end{teorema}
+
+La reducción a $g-2$ grados de libertad (en vez de $g$) se debe a que las
+probabilidades ajustadas se estimaron del propio modelo, lo que impone dos
+restricciones adicionales (aproximadamente correspondientes al intercepto y a la
+pendiente del ajuste sobre los grupos). Un $p$-valor \emph{grande} indica buen
+ajuste (no se rechaza que observado $\approx$ esperado). Nótese la lógica
+invertida frente a un test de significancia usual: aquí \emph{no} rechazar es lo
+deseable.
+
+\begin{observacion}[Limitaciones]
+El test de Hosmer--Lemeshow (i) evalúa calibración global, no una forma
+específica de mala especificación (p.ej.\ un término cuadrático faltante);
+(ii) es sensible al número y método de agrupamiento; (iii) en muestras muy
+grandes tiende a rechazar por desviaciones triviales, y en muy pequeñas tiene
+poca potencia. Es complementario ---no sustituto--- del diagnóstico de
+linealidad. Harrell recomienda además examinar residuos y calibración gráfica.
+\end{observacion}
+
+\subsection{¿Cuándo usar Hosmer--Lemeshow? ¿Es opcional?}
+
+Sí, es un test \textbf{opcional y complementario}, no un requisito para que la
+regresión logística sea válida. Conviene ubicarlo bien dentro del flujo:
+
+\begin{itemize}
+  \item \textbf{Los supuestos que validan el modelo} son los de las Secciones
+        \ref{sec:visual}--\ref{sec:remedios}: linealidad en el logit
+        (Box--Tidwell), independencia de observaciones, ausencia de
+        multicolinealidad (VIF) y tamaño muestral suficiente. Estos son
+        \emph{previos} al ajuste y condicionan que la inferencia sobre $\hbeta$
+        sea confiable.
+  \item \textbf{Hosmer--Lemeshow es \emph{posterior}}: se corre sobre el modelo
+        ya ajustado para chequear \emph{calibración global} ---si las
+        probabilidades predichas coinciden con las frecuencias observadas por
+        grupos de riesgo. No sustituye a los diagnósticos de supuestos.
+\end{itemize}
+
+\paragraph{Cuándo sí aporta.}
+\begin{itemize}
+  \item \textbf{Modelos de predicción de riesgo} donde la probabilidad predicha
+        se usa como tal (credit scoring, riesgo clínico, seguros). Ahí la
+        calibración es el objetivo mismo: un $\hat\pi=0.1$ debe corresponder a
+        $\approx10\%$ de eventos observados. Es su caso de uso canónico y por eso
+        aparece en la validación de \emph{scorecards}.
+  \item Cuando hay \textbf{predictores continuos} que hacen inaplicable el
+        $\chi^2$ de Pearson clásico (Sección \ref{sec:hl}), y se quiere una
+        medida de ajuste global resumida en un número.
+\end{itemize}
+
+\paragraph{Cuándo es prescindible o engañoso.}
+\begin{itemize}
+  \item \textbf{Objetivo puramente discriminativo} (ordenar/clasificar, no usar
+        la probabilidad como magnitud): interesan más AUC, sensibilidad y
+        especificidad. Un modelo puede discriminar bien (AUC alto) y estar mal
+        calibrado, o viceversa: son propiedades distintas.
+  \item \textbf{Muestras muy grandes} (como el dataset de crédito,
+        $n\approx3\times10^5$): el test rechaza por desviaciones triviales
+        ---mismo problema de sensibilidad al tamaño que el Box--Tidwell. Con
+        $n$ grande conviene apoyarse en \textbf{gráficas de calibración}
+        (probabilidad predicha vs observada por bin) en lugar del $p$-valor, que
+        casi siempre saldrá significativo.
+  \item \textbf{Diagnóstico de una forma concreta de mala especificación:} para
+        eso sirven Box--Tidwell (linealidad) o añadir términos y comparar por
+        LRT, no Hosmer--Lemeshow, que solo detecta descalibración agregada.
+\end{itemize}
+
+En resumen: para el flujo de \emph{este} documento ---verificar linealidad en el
+logit--- el test relevante es Box--Tidwell. Hosmer--Lemeshow es un chequeo
+\emph{final y opcional} de calibración, especialmente pertinente si el producto
+es un modelo de scoring cuyas probabilidades se interpretan literalmente; con
+$n$ grande, complementarlo (o reemplazarlo) por una curva de calibración.
+
+\subsection{Implementación en Python}
+
+\begin{lstlisting}[style=py, caption={Test de Hosmer--Lemeshow.}]
+import numpy as np
+import pandas as pd
+import scipy.stats as stats
+
+def hosmer_lemeshow(y_true, y_prob, g=10):
+    df = pd.DataFrame({"y": np.asarray(y_true), "p": np.asarray(y_prob)})
+    # Deciles de riesgo (igual numero de obs por grupo)
+    df["grupo"] = pd.qcut(df["p"], q=g, duplicates="drop")
+
+    agg = df.groupby("grupo", observed=True).agg(
+        n=("y", "size"),
+        obs=("y", "sum"),
+        p_bar=("p", "mean"),
+    )
+    agg["esp"] = agg["n"] * agg["p_bar"]
+    # Estadistico de Hosmer-Lemeshow
+    C = (((agg["obs"] - agg["esp"]) ** 2)
+         / (agg["n"] * agg["p_bar"] * (1 - agg["p_bar"]))).sum()
+
+    gl = len(agg) - 2
+    p_val = stats.chi2.sf(C, df=gl)
+    print(f"Hosmer-Lemeshow: C={C:.3f}, gl={gl}, p={p_val:.4f}")
+    print("p grande -> no se rechaza buen ajuste (calibracion adecuada)")
+    return C, gl, p_val
+
+# Uso tipico tras ajustar el modelo final:
+#   m = sm.Logit(y, sm.add_constant(X)).fit()
+#   hosmer_lemeshow(y, m.predict(sm.add_constant(X)), g=10)
+\end{lstlisting}
+
+% ==================================================================
+\section{Flujo de trabajo completo}\label{sec:flujo}
+% ==================================================================
+
+Reuniendo todo, el procedimiento para verificar y conseguir la linealidad en el
+logit es:
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+  \item \textbf{Clasificar variables:} continuas (candidatas al supuesto),
+        binarias/dummies (exentas), y detectar valores anómalos o ceros
+        estructurales que requieran limpieza o flags.
+  \item \textbf{Visual:} \emph{empirical logit plot} de cada continua. Confirma
+        las lineales y señala las sospechosas.
+  \item \textbf{Transformar} las visualmente no-lineales (típicamente log en
+        variables de escala amplia) y \textbf{re-graficar}.
+  \item \textbf{Box--Tidwell conjunto} sobre las continuas positivas del modelo
+        final, incluyendo todas las demás como control. Wald por término + LRT
+        global.
+  \item \textbf{Decidir por variable} combinando $p$-valor y \emph{magnitud} de
+        $\hat\gamma$ (crítico en $n$ grande): $p\ge0.05$ o $|\hat\gamma|\approx0$
+        $\Rightarrow$ aceptar; violación real $\Rightarrow$ remedio (polinomio,
+        spline, o excluir).
+  \item \textbf{Iterar} 3--5 hasta que el supuesto se sostenga.
+  \item \textbf{Ajustar el modelo final} y verificar bondad de ajuste global con
+        Hosmer--Lemeshow, además de multicolinealidad (VIF), independencia y
+        tamaño muestral (regla $\geq 10$ eventos por predictor).
+  \item \textbf{Inferencia:} Wald/LRT sobre los $\hat\beta$ y odds ratios
+        $e^{\hat\beta_j}$ con sus intervalos de confianza.
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Etapa & Estadístico & Distribución bajo $H_0$ \\
+\midrule
+Coeficientes individuales & Wald $z=\hat\beta_j/\text{SE}$ & $\Nor(0,1)$ \\
+Bloque de coeficientes & LRT $G^2$ & $\chi^2_\nu$ \\
+Box--Tidwell (por variable) & Wald $z=\hat\gamma/\text{SE}$ & $\Nor(0,1)$ \\
+Box--Tidwell (global) & LRT $G^2$ & $\chi^2_{\#\text{términos}}$ \\
+Bondad de ajuste & Hosmer--Lemeshow $\hat C$ & $\chi^2_{g-2}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ==================================================================
+\section{Fuentes y lecturas recomendadas}
+% ==================================================================
+
+Recursos con \emph{derivación completa} (no solo enunciado), útiles para
+profundizar al nivel de estas notas:
+
+\begin{itemize}
+  \item \textbf{G. Rodríguez (Princeton), \emph{Generalized Linear Model
+        Notes}, Apéndice A.} Deriva score, información, Newton--Raphson/Fisher
+        scoring y los tres tests con ejemplos.
+        \url{https://grodri.github.io/glms/notes/a1.pdf}
+  \item \textbf{Penn State STAT 504, Lecciones 6--7.} Modelo logístico desde el
+        problema de heterocedasticidad de OLS, MLE, Wald y LRT, residuos y
+        Hosmer--Lemeshow. \url{https://online.stat.psu.edu/stat504/}
+  \item \textbf{MIT OCW 18.650 (Rigollet), Lecturas 21--24, GLMs.} Familia
+        exponencial, enlace canónico, información de Fisher, devianza; en video.
+  \item \textbf{Shao, \emph{Mathematical Statistics}, Lec.~26} (notas
+        U.~Wisconsin): pruebas formales de Wald y Score como $\chi^2$.
+        \url{https://pages.stat.wisc.edu/~shao/stat610/stat610-26.pdf}
+  \item \textbf{Box \& Tidwell (1962),} \emph{Transformation of the Independent
+        Variables}, Technometrics 4:531--550 (fuente primaria de la
+        transformación).
+  \item \textbf{Pregibon (1980),} \emph{Goodness of Link Tests for GLM}, JRSS-C
+        29:15--24 (extensión del test a GLM vía linealización).
+  \item \textbf{Hosmer \& Lemeshow (1980)} y Hosmer et al.\ (1997), sobre el
+        estadístico de bondad de ajuste y su distribución.
+\end{itemize}
+
+\vfill
+\begin{center}\small\itshape
+Documento generado como material de estudio. Las derivaciones siguen el estándar
+de la teoría de verosimilitud; los recursos citados contienen las demostraciones
+formales completas.
+\end{center}
+
+\end{document}
