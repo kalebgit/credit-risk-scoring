@@ -32,3 +32,5 @@ def box_tidwell_test(X_df, y):
         print(f"  {col:20s}: coef={coef:.4f}, p={pval:.4f}  {flag}")
 
     return model
+
+
